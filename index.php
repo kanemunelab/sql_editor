@@ -1,3 +1,6 @@
+<?php
+session_start();
+?>
 <html>
 <head>
 <meta charset="UTF-8">
@@ -7,25 +10,64 @@ h1,h2 {margin:0px;}
 th {background-color:#ddf;}
 .dblist td {background-color:#fffff0;}
 .result td {background-color:#f8fff8;}
+.history-item {
+  margin:5px 0; 
+  padding:8px; 
+  border:1px solid #ddd; 
+  background-color:#efe; 
+  cursor:pointer; 
+  border-radius:3px;
+  transition: background-color 0.2s;
+}
+.history-item:hover {
+  background-color:#f0f8ff;
+}
 </style>
 </head>
 <body>
 
-<h1>SQLエディタ</h1>
-<!-- ul>
-<li><a href="https://saccess.eplang.jp" target="_blank">sAccess</a>のデータベースをSQLで検索できます。
-<li>「use コンビニ」やログインは不要です。
-<li>「select * from 商品データ」のように検索してください。
-</ul -->
+<script>
+function updateHistoryDisplay(historyArray) {
+  var historyContainer = document.getElementById('history-container');
+  if (historyArray && historyArray.length > 0) {
+    var html = '履歴（最近の3件）';
+    html += '<div style="border:1px solid #ccc; background-color:#f9f9f9; padding:1px; margin:1px auto; width:100%; max-width:600px; font-size:70%;">';
+    
+    for (var i = 0; i < historyArray.length; i++) {
+      var escapedSql = historyArray[i].replace(/'/g, "\\'").replace(/"/g, '\\"');
+      html += '<div class="history-item" onclick="document.getElementById(\'sql_input\').value = \'' + escapedSql + '\'; return false;">';
+      html += '<strong>' + (i + 1) + ':</strong> ' + historyArray[i];
+      html += '</div>';
+    }
+    
+    html += '</div>';
+    historyContainer.innerHTML = html;
+  } else {
+    historyContainer.innerHTML = '';
+  }
+}
 
-<table>
+function clearHistory() {
+  var historyContainer = document.getElementById('history-container');
+  historyContainer.innerHTML = '';
+}
+</script>
+
+<h1 align=center>SQLエディタ</h1>
+
+<table><tr><td>
+
+<table style="font-size:80%;">
+<tr><td>・用意されたデータベースを使い、SQLを実習できます。</td></tr>
 <tr><td>
-<table>
-<tr><td>・<a href="https://saccess.eplang.jp" target="_blank">sAccess</a>のデータベースをSQLで検索できます。</td></tr>
+・<a href="https://saccess.eplang.jp" target="_blank">sAccess</a>のデータを使用しています。</td></tr>
 <tr><td>・「use コンビニ」やログインは不要です。</td></tr>
 <tr><td>・「select * from 商品データ」のように検索してください。</td></tr>
+<tr><td>・insert/update/deleteも他に影響なく使用できます。</td></tr>
 </table>
+
 </td><td>
+
 <table class="dblist" border=1 style="font-size:70%;">
 <tr><th>データベース</th><th>テーブル</th></tr>
 <tr><td>コンビニ</td><td>商品データ、売上データ</td></tr>
@@ -33,33 +75,53 @@ th {background-color:#ddf;}
 <tr><td>生徒名簿</td><td>生徒データ、選択科目データ、クラブデータ、生徒成績データ</td></tr>
 <tr><td>図書館</td><td>図書データ、著者データ、分類データ、貸出データ、生徒データ</td></tr>
 </table>
-</td></tr>
-</table>
+
+</td><td>
+
+<!-- SQL履歴表示エリア（JavaScript更新用） -->
+<div id="history-container" style="text-align:left; margin-top:20px;">
+  <!-- 履歴はJavaScriptで動的に更新される -->
+</div>
+
+</td></tr></table>
 
 <hr>
 
 <form method="POST" name="sql_form" id="sql_form" action="<?php print($_SERVER['PHP_SELF']) ?>" style="text-align:center;">
-<h2>SQL実行</h2>
+<h2>SQLを実行しよう！</h2>
 <input type="radio" name="db_select" value="convini" <?php if (!isset($_POST['db_select']) || (isset($_POST['db_select']) && $_POST['db_select'] == "convini")) echo 'checked'; ?>>コンビニ
 <input type="radio" name="db_select" value="rental" <?php if (isset($_POST['db_select']) && $_POST['db_select'] == "rental") echo 'checked'; ?>>レンタル
 <input type="radio" name="db_select" value="student" <?php if (isset($_POST['db_select']) && $_POST['db_select'] == "student") echo 'checked'; ?>>生徒名簿
 <input type="radio" name="db_select" value="library" <?php if (isset($_POST['db_select']) && $_POST['db_select'] == "library") echo 'checked'; ?>>図書館<br>
-<input type="text" name="sql_input" id="sql_input" size=60 style="font-size:24px;background-color:#e8f0ff;" placeholder="SQL文を入力してください。" value="<?php echo $_POST['sql_input']; ?>"><br><br>
-<input type="submit" name="btn1" value="送信">
-<input type="submit" name="rollback_btn" value="ロールバック" style="background-color:#ffcccc;">
+<input type="text" name="sql_input" id="sql_input" size=60 style="font-size:24px;background-color:#e8f0ff;" placeholder="SQL文を入力してください。" value="<?php echo $_POST['sql_input']; ?>">
+<input type="submit" name="btn1" value="送信" style="background-color:#ccffcc;"><br><br>
+<input type="submit" name="rollback_btn" value="データベース初期化" style="background-color:#ffcccc;">
 </form>
 
 <?php
-session_start();
-
 // データベースファイルのディレクトリ設定
 $DB_DIRECTORY = '/var/www/klab_data/kanemune/sql_editor';
 
 if($_SERVER["REQUEST_METHOD"] == "POST"){
+    // データベース選択が変更された場合は履歴をクリア
+    $db_changed = false;
+    if (isset($_POST['db_select']) && isset($_SESSION['current_db']) && $_POST['db_select'] != $_SESSION['current_db']) {
+        $_SESSION['sql_history'] = array();
+        $db_changed = true;
+    }
+    $_SESSION['current_db'] = $_POST['db_select'];
+    
     if (isset($_POST['rollback_btn'])) {
         rollback_transaction();
+        // ロールバック後は履歴をクリア
+        print('<script>clearHistory();</script>');
     } else {
         exec_sql();
+    }
+    
+    // データベース変更時のみ履歴クリア（SQL実行なしの場合）
+    if ($db_changed && !isset($_POST['btn1'])) {
+        print('<script>clearHistory();</script>');
     }
 }
 
@@ -94,9 +156,22 @@ function exec_sql(){
   $temp_db_path = $_SESSION[$temp_db_key];
   $db = new SQLite3($temp_db_path);
   
+  // SQL履歴を先に保存（実行前に）
+  if (!isset($_SESSION['sql_history'])) {
+    $_SESSION['sql_history'] = array();
+  }
+  
+  // 最新3件まで保持
+  array_unshift($_SESSION['sql_history'], $sql_text);
+  if (count($_SESSION['sql_history']) > 3) {
+    array_pop($_SESSION['sql_history']);
+  }
+  
   $result = $db->query($sql_text);
   if (!$result) {
     print_error($db->lastErrorMsg(), $sql_text);
+    // エラー時は履歴から削除
+    array_shift($_SESSION['sql_history']);
     // エラー時は一時ファイルを削除してセッションをクリア
     $db->close();
     if (file_exists($temp_db_path)) {
@@ -168,9 +243,19 @@ function exec_sql(){
   $db->close();
   
   // トランザクション継続中であることを通知
-  print("<p align=center style='color:green;'>トランザクション継続中（変更は一時データベースに保存されています）</p>");
-  print("<p align=center><small>※ 元のデータベースファイルには影響しません</small></p>");
+  //print("<p align=center style='color:green;'>トランザクション継続中（変更は一時データベースに保存されています）</p>");
+  //print("<p align=center><small>※ 元のデータベースファイルには影響しません</small></p>");
   
+  // JavaScript経由で履歴を更新
+  print('<script>');
+  if (isset($_SESSION['sql_history']) && count($_SESSION['sql_history']) > 0) {
+    print('updateHistoryDisplay(' . json_encode($_SESSION['sql_history'], JSON_HEX_QUOT | JSON_HEX_APOS) . ');');
+  } else {
+    print('updateHistoryDisplay([]);');
+  }
+  print('</script>');
+  
+  //print('<hr><small style="text-align:right;">大阪電気通信大学 兼宗研究室</small>');
   print('<hr><small style="text-align:right;">kanemune lab, Osaka Electro-Communication University.</small>');
 }
 
@@ -189,8 +274,9 @@ function rollback_transaction(){
         
         unset($_SESSION[$session_key]);
         unset($_SESSION[$temp_db_key]);
-        print("<p align=center style='color:red;'>トランザクションをロールバックしました</p>");
-        print("<p align=center><small>一時データベースを削除し、すべての変更が破棄されました</small></p>");
+        print("<p align=center style='color:red;'>データベースが初期化されました</p>");
+        //print("<p align=center style='color:red;'>トランザクションをロールバックしました</p>");
+        //print("<p align=center><small>一時データベースを削除し、すべての変更が破棄されました</small></p>");
     } else {
         print("<p align=center style='color:orange;'>アクティブなトランザクションがありません</p>");
     }
@@ -242,5 +328,6 @@ function print_error($msg, $sql){
 }
 
 ?>
+
 </body>
 </html>
